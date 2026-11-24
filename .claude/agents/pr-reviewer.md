@@ -13,7 +13,7 @@ Check, using `git diff origin/main...<branch>` and `git log origin/main..<branch
 2. The diff contains no `.claude/`, `CLAUDE.md`, `victory.toml`, logs or caches.
 3. Correctness: read the changed code for real bugs (edge cases, wrong semantics, off-by-one, unsafety). Every `unsafe` block has a `// SAFETY:` comment.
 4. Tests: new behaviour has synthetic tests; tests needing game data read env vars and skip when unset; they assert properties, not snapshots.
-5. Lints as CI runs them: `cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings` and with `--all-features`; `cargo fmt --all --check`.
+5. Lints: on the Mac only per-crate clippy works for the Windows target (`cargo clippy -p <crate> --all-targets --target x86_64-pc-windows-msvc -- -D warnings`; blake3's C build script cannot cross-compile here). Workspace clippy as CI runs it happens on the box via `box-runner`. Upstream is not rustfmt-clean: judge formatting only on added lines, never run `cargo fmt --all`.
 6. Style: commit titles like `Area: one sentence` (Shaders:, GPU:, HLE:, Loader:), one logical change per PR, comments explain why.
 7. Still not a duplicate: `gh pr list -R Marvisak/VIctory --state open --search "<keywords>"`.
 

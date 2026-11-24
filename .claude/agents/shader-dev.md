@@ -22,6 +22,6 @@ Implementation rules:
 Verify on the Mac (source `~/.cargo/env` first):
 - `cargo test -p victory-shader <filter>` (some tests need dxil.dll/a GPU and skip or are cfg(windows); report which ran).
 - `cargo clippy -p victory-shader --all-targets --target x86_64-pc-windows-msvc -- -D warnings`
-- `cargo fmt --all`
+- Do NOT run `cargo fmt --all`: upstream is not rustfmt-clean and it rewrites unrelated files. Format only the lines you add, by hand, in the surrounding style.
 
 Commit on your worktree branch with a message in upstream style: `Shaders: <one sentence>`, body explaining the hardware semantics, ending with the Co-Authored-By line from the session's attribution. Return: branch name, files changed, tests added/run, anything unverified.
