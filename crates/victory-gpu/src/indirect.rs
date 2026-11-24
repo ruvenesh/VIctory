@@ -21,7 +21,7 @@ use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D12::*;
 use windows::core::s;
 
-use crate::host::{HostList, host, transition};
+use crate::host::{BUFFER_READ, BUFFER_WRITE, HostList, host};
 
 const SOURCE: &str = r#"
 #define RS "RootConstants(num32BitConstants=4, b0), UAV(u0), UAV(u1)"
@@ -158,6 +158,8 @@ pub(crate) fn bound(
     }
     let l = &list.list;
     let constants = [kind, stride, records, 0];
+    list.begin_command();
+    list.buffer_state(buffer, BUFFER_WRITE);
     // SAFETY: an open list; our root signature, pipeline and a live buffer
     // the caller's list holds.
     unsafe {
@@ -169,28 +171,37 @@ pub(crate) fn bound(
         l.SetComputeRootUnorderedAccessView(1, gpu);
         l.SetComputeRootUnorderedAccessView(2, budget);
         l.Dispatch(records.div_ceil(64), 1, 1);
-        l.ResourceBarrier(&[
-            uav_barrier(),
-            transition(
-                buffer,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
-            ),
-        ]);
+        l.ResourceBarrier(&[uav_barrier()]);
     }
     true
 }
 
-/// After the execution: the buffer back to unordered access, where the
-/// title's passes keep using it.
-pub(crate) fn done(list: &HostList, buffer: &ID3D12Resource) {
-    // SAFETY: an open list and a live buffer.
+/// Runs `max` records of `signature` from `args` (a host copy of title
+/// memory) at `offset`, with their count at `counter` if there is one: both
+/// read as arguments, after whatever wrote them (the clamp, or the draw's
+/// own binding).
+pub(crate) fn execute(
+    list: &HostList,
+    signature: &ID3D12CommandSignature,
+    max: u32,
+    (args, offset): (&ID3D12Resource, u64),
+    counter: Option<(&ID3D12Resource, u64)>,
+) {
+    list.buffer_state(args, BUFFER_READ);
+    if let Some((c, _)) = counter {
+        list.buffer_state(c, BUFFER_READ);
+    }
+    // SAFETY: an open list with everything set; host copies the list keeps
+    // alive, a cached signature.
     unsafe {
-        list.list.ResourceBarrier(&[transition(
-            buffer,
-            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        )])
+        list.list.ExecuteIndirect(
+            signature,
+            max,
+            args,
+            offset,
+            counter.map(|(c, _)| c),
+            counter.map_or(0, |(_, at)| at),
+        )
     };
 }
 
