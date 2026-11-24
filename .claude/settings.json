@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(cargo *)",
+      "Bash(rustup *)",
+      "Bash(git *)",
+      "Bash(ssh myvam-box *)",
+      "Bash(scp *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr create --repo ruvenesh/VIctory *)",
+      "Bash(gh pr edit --repo ruvenesh/VIctory *)",
+      "Bash(gh pr ready --repo ruvenesh/VIctory *)",
+      "Bash(gh run *)",
+      "Bash(gh issue list *)",
+      "Bash(gh issue view *)",
+      "Bash(gh search *)",
+      "Bash(gh api repos/Marvisak/VIctory/*)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(find *)",
+      "Bash(sed -n *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(mkdir *)",
+      "Bash(diff *)",
+      "WebFetch",
+      "WebSearch"
+    ],
+    "ask": [
+      "Bash(gh pr create --repo Marvisak/VIctory *)",
+      "Bash(gh pr create -R Marvisak/VIctory *)",
+      "Bash(gh pr comment *)",
+      "Bash(gh issue create *)",
+      "Bash(gh issue comment *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push origin *)",
+      "Bash(git reset --hard origin*)",
+      "Bash(git clean -fdx*)",
+      "Bash(ssh myvam-box *rm -rf*victory-data*)",
+      "Bash(ssh myvam-box *rm -rf*Downloads*)",
+      "Bash(ssh myvam-box *sudo*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-commit.sh", "timeout": 300 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh", "timeout": 20 }
+        ]
+      }
+    ]
+  }
+}
