@@ -15,7 +15,7 @@ Layout on the box:
 - Data/logs: `~/victory-data/` (`<tag>.log/.txt/.vkd3d`, `data/crashes.log`, `media/`).
 
 Build (`/build <tag> [branch]`):
-1. `cd ~/Work/victory && git fetch fork origin -q`, then `git worktree add -f ~/Work/victory-wt/<tag> fork/<branch>` (or `git -C ~/Work/victory-wt/<tag> checkout --detach fork/<branch>` if it exists). Share the target dir to save time: `export CARGO_TARGET_DIR=~/Work/victory-target`.
+1. `cd ~/Work/victory && git fetch --multiple fork origin -q`, then `git worktree add -f ~/Work/victory-wt/<tag> fork/<branch>` (or `git -C ~/Work/victory-wt/<tag> checkout --detach fork/<branch>` if it exists). Share the target dir to save time: `export CARGO_TARGET_DIR=~/Work/victory-target`.
 2. `cargo build --profile diag -p victory --features diagnostics --target x86_64-pc-windows-msvc` (long: run it as `nohup ... > ~/victory-data/build-<tag>.log 2>&1 &` and poll with a loop of short ssh checks; never a bare long sleep).
 3. Copy `$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/diag/victory.exe` to `~/victory-data/victory-<tag>.exe` (new name per build; a rebuild invalidates the shader cache).
 4. Optional tests that need Windows/GPU: stop the game first (`~/victory-tools/stop-game.sh`), the game holds ~12 GB VRAM.

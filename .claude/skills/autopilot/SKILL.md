@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 Run the loop below for `$ARGUMENTS` (defaults: area `shader`, count 2). Work autonomously: do not ask the user anything until the final summary. If a step fails, fix it or drop the task and move to the next candidate; record why.
 
-Setup once: `source ~/.cargo/env`; `git fetch origin fork -q`; if fork `main` is more than ~20 commits behind `origin/main`, run the `/sync` steps first (it is allowed without asking here).
+Setup once: `source ~/.cargo/env`; `git fetch --multiple origin fork -q`; if fork `main` is more than ~20 commits behind `origin/main`, run the `/sync` steps first (it is allowed without asking here).
 
 For each task:
 1. **Pick.** If myvam-box is reachable and a recent run log exists, have `log-analyst` summarize the newest one. Then `scout` with the area and that histogram. Take its top candidate not already in `~/.victory/queue.md`.
