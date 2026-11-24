@@ -10,6 +10,8 @@ VIctory runs a Grand Theft Auto VI (Xbox Series) title natively: the title's x86
 
 Toolchain is pinned in `rust-toolchain.toml` (target `x86_64-pc-windows-msvc`).
 
+In this setup the build/test/run commands below run on myvam-box, not on the Mac (see Contributor setup).
+
 ```
 cargo xtask install-hooks                  # pre-commit asset-policy check
 cargo xtask policy [--staged]              # asset-policy check (allowlist)
@@ -43,8 +45,8 @@ This file and `.claude/` live in `dev:` commits (starting with `dev: Claude Code
 
 ### Machines
 
-- **Mac** (this checkout): control seat. Rust is installed (`source ~/.cargo/env`), host target is aarch64-apple-darwin plus the pinned `x86_64-pc-windows-msvc` std. Here: edits, git/gh, `cargo xtask policy`, portable crate tests, `cargo clippy --target x86_64-pc-windows-msvc` (checks without linking). Nothing here runs the title. On macOS `cargo test -p victory-shader -p victory-formats -p victory-pipeline` passes; `victory-pe`'s image tests fail by design (they parse the test binary itself, which is Mach-O here). Windows-target clippy works per crate, but workspace clippy fails in blake3's C build script, so it runs on the box. Upstream is not rustfmt-clean: never run `cargo fmt --all`.
-- **myvam-box** (`ssh myvam-box`, Linux Mint, RTX 3060 12 GB, Proton): builds Windows binaries with xwin + rust-lld and runs the title under GE-Proton 11. Use the `box-runner` agent; tools in `~/victory-tools/`, data and logs in `~/victory-data/`, game files outside every repo. Box pitfalls: `source ~/.cargo/env &&` first; no `pkill -f`/`pgrep -f` (matches the ssh command), kill by pid; script anything with quotes and `scp` it; stop the title before GPU tests (it holds ~12 GB VRAM); `Xid 109` in the kernel log = GPU hang. No sudo.
+- **Mac** (this checkout): orchestrator only. Here: edits, git/gh, pushing to `fork`, driving agents and the box over ssh. Do NOT build, test, clippy or run anything here: every `cargo build/test/clippy` and every game run happens on myvam-box. The one exception is the commit hook's `cargo xtask policy --staged` (asset check on what is being committed). Code reaches the box through git: push the branch to `fork`, the box fetches it. Upstream is not rustfmt-clean: never run `cargo fmt --all`.
+- **myvam-box** (`ssh myvam-box`, Linux Mint, RTX 3060 12 GB, Proton): builds Windows binaries with xwin + rust-lld and runs the title under GE-Proton 11. Use the `box-runner` agent. `~/victory-tools/test-branch.sh <tag> <fork-branch> [cargo test args]` runs CI's three steps (workspace clippy, clippy `--all-features`, tests) for the Windows target with tests under Proton's wine, log in `~/victory-data/test-<tag>.log`. Known box-only failures (they fail on unchanged upstream main under wine too, and pass on Windows CI): `victory-gpu` indirect::tests::argument_clamp_builds and pipeline::library::tests::a_rejected_blob_gives_an_empty_library, `victory-hle` modules::net::tests::only_loopback_is_reachable (wine's ws2_32 lacks WSAConnectByList), `victory-loader` load_probe::loads_binds_and_calls_probe and `xtask` policy::tests::repository_passes_policy (cannot spawn cargo/git from inside wine), `victory-shader` emit::tests::stub_pipeline_is_created. Any other failure is real; when unsure, run `test-branch.sh base upstream-main` and compare. Other tools: tools in `~/victory-tools/`, data and logs in `~/victory-data/`, game files outside every repo. Box pitfalls: `source ~/.cargo/env &&` first; no `pkill -f`/`pgrep -f` (matches the ssh command), kill by pid; script anything with quotes and `scp` it; stop the title before GPU tests (it holds ~12 GB VRAM); `Xid 109` in the kernel log = GPU hang. No sudo.
 - **Windows CI**: a draft PR inside the fork runs upstream's `ci.yml` (windows-latest: clippy `-D warnings` twice, `cargo test --workspace --locked`).
 
 ### How to work
@@ -53,6 +55,6 @@ This file and `.claude/` live in `dev:` commits (starting with `dev: Claude Code
 - The only things that need the user's explicit yes, each time: opening a PR, issue or comment on `Marvisak/VIctory`, and anything destructive outside the repo. Never push to `origin`.
 - Before starting work, check it is not already done or in flight upstream (`scout`). The upstream repo gets many PRs a day.
 - One logical change per PR, synthetic tests included. Commit/PR titles: `Area: one sentence` (`Shaders:`, `GPU:`, `HLE:`, `Loader:`, `Formats:`).
-- Main loop: `/autopilot [area] [n]`. Pieces: `/pick-task`, `/build <tag>`, `/run-game <tag>`, `/stack <PR#...>`, `/sync`, `/pr-upstream`. Queue of branches ready for upstream: `~/.victory/queue.md`.
+- Main loop: `/autopilot [area] [n]`. Pieces: `/pick-task`, `/build <tag>`, `/test <tag>`, `/run-game <tag>`, `/stack <PR#...>`, `/sync`, `/pr-upstream`. Queue of branches ready for upstream: `~/.victory/queue.md`.
 - Agents: `scout` (find + dedupe, haiku), `log-analyst` (box logs -> counts, haiku), `shader-dev` (one opcode/lowering in a worktree), `box-runner` (build/run on the box), `pr-reviewer` (pre-PR review). Keep to 1-2 parallel workers (Pro plan limits).
 - Send screenshots and result files to the user with SendUserFile: they read on the phone via Remote Control.

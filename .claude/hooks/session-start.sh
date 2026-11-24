@@ -8,9 +8,9 @@ if [ -n "$CLAUDE_CODE_REMOTE" ]; then
   exit 0
 fi
 if ssh -o ConnectTimeout=3 -o BatchMode=yes myvam-box true 2>/dev/null; then
-  echo "Context: Mac control seat. myvam-box reachable: builds and game runs go through the box-runner agent."
+  echo "Context: Mac control seat. myvam-box reachable: all builds, tests and game runs happen there (the Mac only orchestrates)."
 else
-  echo "Context: Mac control seat. WARNING: myvam-box is NOT reachable; only Mac-side checks (policy, portable tests, clippy --target windows) are possible."
+  echo "Context: Mac control seat. WARNING: myvam-box is NOT reachable; nothing can be built or tested until it is back (the Mac only orchestrates)."
 fi
 branch=$(git branch --show-current)
 echo "Branch: $branch. Behind origin/main: $(git rev-list --count HEAD..origin/main 2>/dev/null || echo ?)."
