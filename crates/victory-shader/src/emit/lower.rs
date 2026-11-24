@@ -1862,7 +1862,7 @@ impl<'a> Lower<'a> {
     /// Code that depends on the lane layout: wave operations, and in compute
     /// the console's wave size (lanes are thread ids in group order there).
     /// Pixel lanes match only within a quad.
-    fn cross_lane(&mut self, quad: bool) -> Result<(), Why> {
+    fn cross_lane(&mut self, quad: bool, what: &str) -> Result<(), Why> {
         if self.s.mesh.is_some() {
             // shortcut: no wave size for mesh shaders in SM 6.6, so host
             // lanes cannot follow the console's; emulate through group-shared
@@ -1870,7 +1870,8 @@ impl<'a> Lower<'a> {
             return Err("a cross-lane operation in a mesh shader");
         }
         if self.s.threads.is_none() && !(quad && self.s.pixel) {
-            return Err("a cross-lane operation outside compute");
+            let stage = if self.s.pixel { "ps" } else { "other" };
+            return Err(Box::leak(format!("a cross-lane operation outside compute {what} {stage} ").into_boxed_str()));
         }
         debug_assert!(self.s.threads.is_none() || self.console_lanes);
         self.s.flags |= flags::WAVE_OPS;
@@ -2094,7 +2095,7 @@ impl<'a> Lower<'a> {
             // console's, so quad-local swizzles read through quad operations.
             let mesh_quad = self.s.mesh.is_some() && quad;
             if !mesh_quad {
-                self.cross_lane(quad)?;
+                self.cross_lane(quad, &format!("{name}:{offset:#x}"))?;
             }
             // The source sits in the address field.
             let x = self.vgprs(inst, addr.as_ref().ok_or("a swizzle source")?, 1)?[0];
@@ -3614,7 +3615,7 @@ impl<'a> Lower<'a> {
         let quad = matches!(dpp, Dpp::Row { ctrl: 0..=0xFF, .. });
         let mesh_quad = self.s.mesh.is_some() && quad;
         if !mesh_quad {
-            self.cross_lane(quad)?;
+            self.cross_lane(quad, &format!("{}:{dpp:?}", inst.name()))?;
         }
         let c = self.cur;
         let lane = self.lane_index();
@@ -4209,7 +4210,7 @@ impl<'a> Lower<'a> {
                 if self.mask_data == MaskData::Host && !matches!(lane, V::Const(_)) {
                     self.s.flags |= flags::WAVE_OPS;
                 } else {
-                    self.cross_lane(false)?;
+                    self.cross_lane(false, inst.name())?;
                 }
                 let r = self.read_lane(a, lane);
                 int(self, r)
@@ -4224,7 +4225,7 @@ impl<'a> Lower<'a> {
                     Some(o) => self.i32_of(o)?,
                     None => self.s.m.i32(0),
                 };
-                self.cross_lane(false)?;
+                self.cross_lane(false, inst.name())?;
                 let me = self.lane_index();
                 let is = self.s.m.cmp(c, pred::EQ, me, lane);
                 let r = self.s.m.select(c, is, a, old);
@@ -5229,7 +5230,7 @@ impl<'a> Lower<'a> {
                     }
                     self.s.flags |= flags::WAVE_OPS;
                 } else if self.s.mesh.is_none() {
-                    self.cross_lane(false)?;
+                    self.cross_lane(false, inst.name())?;
                 }
                 let lane = self.lane_index();
                 let below = if name == "v_mbcnt_lo_u32_b32" {
