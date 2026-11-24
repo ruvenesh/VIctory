@@ -2127,9 +2127,6 @@ impl<'a> Lower<'a> {
             self.write(inst, Reg::V(reg), r, guard);
             return Ok(());
         }
-        if self.s.lds_dwords == 0 {
-            return Err("LDS the program does not allocate");
-        }
         let a = self.vgprs(inst, addr.as_ref().ok_or("an LDS address")?, 1)?[0];
         // shortcut: LDS addresses are taken as dword-aligned and in bounds
         // (out-of-bounds console accesses read 0 and drop writes).
@@ -2158,6 +2155,50 @@ impl<'a> Lower<'a> {
                 (u32::from(*offset1) * scale, w),
             ]
         };
+        if self.s.lds_dwords == 0 {
+            // No LDS allocated: every access is out of bounds, so reads (and
+            // returning atomics) give 0 and writes are dropped.
+            let rest = name.strip_prefix("ds_").ok_or("an LDS operation")?;
+            let zeros = if let Some(r) = rest.strip_prefix("read") {
+                if r.starts_with('2') {
+                    pair(name).iter().map(|e| e.1).sum()
+                } else if matches!(r, "_b32" | "_b64" | "_b96" | "_b128") {
+                    width(name)
+                } else {
+                    return Err("an LDS read of bytes or halves");
+                }
+            } else if let Some(r) = rest.strip_prefix("write") {
+                if !(r.starts_with('2') || matches!(r, "_b32" | "_b64" | "_b96" | "_b128")) {
+                    return Err("an LDS write of bytes or halves");
+                }
+                0
+            } else if matches!(
+                rest.replace("_rtn", "").as_str(),
+                "add_u32"
+                    | "sub_u32"
+                    | "and_b32"
+                    | "or_b32"
+                    | "xor_b32"
+                    | "min_i32"
+                    | "max_i32"
+                    | "min_u32"
+                    | "max_u32"
+                    | "wrxchg_b32"
+                    | "cmpst_b32"
+            ) {
+                u32::from(rest.contains("_rtn"))
+            } else {
+                return Err("an LDS operation");
+            };
+            if zeros > 0 {
+                let reg = dst_reg.ok_or("an LDS read result")?;
+                let zero = self.s.m.i32(0);
+                for n in 0..zeros {
+                    self.write(inst, Reg::V(reg + n as u8), zero, guard);
+                }
+            }
+            return Ok(());
+        }
         if let Some(rest) = name.strip_prefix("ds_read") {
             let elements = if rest.starts_with('2') {
                 pair(name)

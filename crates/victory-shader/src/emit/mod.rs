@@ -747,3 +747,94 @@ mod tests {
         let _ = super::emit(&c, &native, &p, &st, &io, &res);
     }
 }
+
+/// DS ops in a program that allocates no LDS, lowered on any host.
+#[cfg(test)]
+mod ds_without_lds_tests {
+    use super::lower;
+    use crate::native::{
+        ComputeIo, HwStage, NativeProgram, ResourceType, RootParam, RootType, StageIo, UsedResource,
+    };
+    use crate::{ShaderError, io, ir, resource, structure};
+
+    /// A compute program of `ds` (DS words) followed by a store of v0 to a
+    /// raw UAV, with `lds_granules` 512-byte granules of LDS, lowered.
+    fn lower_ds_cs(ds: &[u32], lds_granules: u32) -> Result<(), ShaderError> {
+        let mut words = vec![
+            0xBE85_0380u32, // s_mov_b32 s5, 0x80 (descriptor table high dword)
+            0xF408_0202,
+            0xFA00_0000, // s_load_dwordx4 s[8:11], s[4:5], null
+        ];
+        words.extend_from_slice(ds);
+        words.extend_from_slice(&[
+            0xE070_0000,
+            0x8002_0000, // buffer_store_dword v0, off, s[8:11], 0
+            0xBF81_0000,
+        ]);
+        let native = NativeProgram {
+            stage: HwStage::Cs,
+            wave64: false,
+            vgprs: 8,
+            layout: vec![RootParam {
+                root: RootType::Table,
+                table_offset_dwords: 0,
+                sgprs: 1,
+                base_register: 0,
+                user_data: 4,
+                slot: 1,
+            }],
+            used: vec![UsedResource {
+                kind: ResourceType::Uav,
+                root: RootType::Table,
+                table_offset_dwords: 0,
+                lower_bound: 0,
+                stride: 0,
+                dwords: 4,
+                user_data: 4,
+                slot: 1,
+            }],
+            io: StageIo::Cs(ComputeIo {
+                rsrc2: 5 << 1 | lds_granules << 15,
+                threads: [1, 1, 1],
+            }),
+            code: words.iter().flat_map(|w| w.to_le_bytes()).collect(),
+        };
+        let p = ir::build(&native.code, native.wave64, native.vgprs).unwrap();
+        let st = structure::structure(&p).unwrap();
+        let res = resource::track(&p, &native.layout, native.stage, Some(&st)).unwrap();
+        let io = io::raise(&p, &native).unwrap();
+        lower::lower(&lower::Parts {
+            native: &native,
+            p: &p,
+            st: &st,
+            io: &io,
+            res: &res,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            prims: Vec::new(),
+            mesh_stride: 0,
+        })
+        .map(|_| ())
+    }
+
+    /// With no LDS allocated every access is out of bounds: writes drop and
+    /// reads return 0, so the stored value translates; bytes and halves
+    /// still refuse as they do with LDS.
+    #[test]
+    fn ds_ops_without_lds_translate_and_byte_reads_still_refuse() {
+        let write = [0xD834_0000u32, 0x0000_0100]; // ds_write_b32 v0, v1
+        let read = [0xD8D8_0000u32, 0x0000_0000]; // ds_read_b32 v0, v0
+        let read_u8 = [0xD8E8_0000u32, 0x0000_0000]; // ds_read_u8 v0, v0
+        let both = [write, read].concat();
+        lower_ds_cs(&both, 0).expect("ds_write/ds_read without LDS");
+        lower_ds_cs(&both, 1).expect("ds_write/ds_read with LDS");
+        for granules in [0, 1] {
+            match lower_ds_cs(&read_u8, granules) {
+                Err(ShaderError::Unsupported { what, .. }) => {
+                    assert_eq!(what, "an LDS read of bytes or halves")
+                }
+                other => panic!("ds_read_u8: {other:?}"),
+            }
+        }
+    }
+}

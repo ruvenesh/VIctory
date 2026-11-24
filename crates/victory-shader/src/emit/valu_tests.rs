@@ -937,3 +937,19 @@ fn v_cmp_class_f16_matches_rdna2() {
         );
     });
 }
+
+/// A program that allocates no LDS has every access out of bounds on the
+/// console: `ds_write_b32` drops its data and `ds_read_b32` returns 0.
+#[test]
+fn ds_ops_without_lds_read_zero_and_drop_writes() {
+    let shader = build_valu_cs(&[
+        0xD834_0000,
+        0x0000_0100, // ds_write_b32 v0, v1
+        0xD8D8_0000,
+        0x0000_0000, // ds_read_b32 v0, v0
+    ]);
+    let cases = [[0xDEAD_BEEF, 0, 0, 0], [1, 2, 3, 4]];
+    run_cases(&shader, &cases, |backend, i, inp, got| {
+        assert_eq!(got, 0, "{backend}: case {i} {inp:x?} read {got:#x}");
+    });
+}
