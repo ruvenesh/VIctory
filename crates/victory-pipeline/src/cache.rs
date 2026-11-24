@@ -69,8 +69,18 @@ impl Cache {
         if published.is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
-        published?;
-        Ok(path)
+        match published {
+            Ok(()) => Ok(path),
+            // Another converter published the same key while we converted,
+            // and the replace failed (on Windows, while a reader holds the
+            // entry without delete sharing): its output is this one, since
+            // the key covers the converter and the input.
+            Err(_) if path.is_file() => {
+                tracing::trace!(key = %key.to_hex(), "published by another writer");
+                Ok(path)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
@@ -117,6 +127,58 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(std::fs::read(&a).unwrap(), b"ABC");
         assert_eq!(conv.runs.load(Ordering::Relaxed), 1);
+    }
+
+    /// Publishes the entry for its input itself while converting, as a
+    /// concurrent converter of the same key would, and holds it open
+    /// without delete sharing, as a reader (antivirus, another process)
+    /// may.
+    #[cfg(windows)]
+    struct Racer {
+        entry: PathBuf,
+        held: std::sync::Mutex<Option<std::fs::File>>,
+    }
+
+    #[cfg(windows)]
+    impl Converter for Racer {
+        fn id(&self) -> &'static str {
+            "test.racer"
+        }
+        fn version(&self) -> u32 {
+            1
+        }
+        fn convert(&self, input: &[u8]) -> Result<Vec<u8>> {
+            use std::os::windows::fs::OpenOptionsExt;
+            let output = input.to_ascii_uppercase();
+            std::fs::create_dir_all(self.entry.parent().unwrap())?;
+            std::fs::write(&self.entry, &output)?;
+            const FILE_SHARE_READ: u32 = 1;
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ)
+                .open(&self.entry)?;
+            *self.held.lock().unwrap() = Some(file);
+            Ok(output)
+        }
+    }
+
+    /// Losing a publication race to an identical entry is a hit, not an
+    /// error (#890).
+    #[cfg(windows)]
+    #[test]
+    fn an_entry_published_meanwhile_is_used() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = Cache::open(tmp.path().join("cache")).unwrap();
+        let mut racer = Racer {
+            entry: PathBuf::new(),
+            held: std::sync::Mutex::new(None),
+        };
+        racer.entry = cache.path_for(&CacheKey::new(&racer, b"abc"));
+        let path = cache.get_or_convert(&racer, b"abc").unwrap();
+        assert_eq!(path, racer.entry);
+        assert_eq!(std::fs::read(&path).unwrap(), b"ABC");
+        // No staging file is left behind.
+        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
     }
 
     #[test]
