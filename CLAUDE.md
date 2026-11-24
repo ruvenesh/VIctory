@@ -39,11 +39,11 @@ Workspace lints deny `unsafe_op_in_unsafe_fn` and `unused_must_use`; clippy warn
 
 ## Contributor setup (this fork only, never upstream)
 
-This file and `.claude/` live in a single commit `dev: Claude Code setup` on top of upstream `main` in the fork `ruvenesh/VIctory`. Feature branches start from `fork/main`; before anything goes upstream it is rebased with `git rebase --onto origin/main fork/main` so the setup commit is dropped. `/sync` refreshes fork `main`.
+This file and `.claude/` live in `dev:` commits (starting with `dev: Claude Code setup`) on top of upstream `main` in the fork `ruvenesh/VIctory`. Feature branches start from `fork/main`; before anything goes upstream it is rebased with `git rebase --onto origin/main fork/main` so the setup commit is dropped. `/sync` refreshes fork `main`.
 
 ### Machines
 
-- **Mac** (this checkout): control seat. Rust is installed (`source ~/.cargo/env`), host target is aarch64-apple-darwin plus the pinned `x86_64-pc-windows-msvc` std. Here: edits, git/gh, `cargo xtask policy`, portable crate tests, `cargo clippy --target x86_64-pc-windows-msvc` (checks without linking). Nothing here runs the title.
+- **Mac** (this checkout): control seat. Rust is installed (`source ~/.cargo/env`), host target is aarch64-apple-darwin plus the pinned `x86_64-pc-windows-msvc` std. Here: edits, git/gh, `cargo xtask policy`, portable crate tests, `cargo clippy --target x86_64-pc-windows-msvc` (checks without linking). Nothing here runs the title. On macOS `cargo test -p victory-shader -p victory-formats -p victory-pipeline` passes; `victory-pe`'s image tests fail by design (they parse the test binary itself, which is Mach-O here), and Windows-only crates only build on the box/CI.
 - **myvam-box** (`ssh myvam-box`, Linux Mint, RTX 3060 12 GB, Proton): builds Windows binaries with xwin + rust-lld and runs the title under GE-Proton 11. Use the `box-runner` agent; tools in `~/victory-tools/`, data and logs in `~/victory-data/`, game files outside every repo. Box pitfalls: `source ~/.cargo/env &&` first; no `pkill -f`/`pgrep -f` (matches the ssh command), kill by pid; script anything with quotes and `scp` it; stop the title before GPU tests (it holds ~12 GB VRAM); `Xid 109` in the kernel log = GPU hang. No sudo.
 - **Windows CI**: a draft PR inside the fork runs upstream's `ci.yml` (windows-latest: clippy `-D warnings` twice, `cargo test --workspace --locked`).
 
