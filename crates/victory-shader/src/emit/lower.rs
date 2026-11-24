@@ -3058,6 +3058,15 @@ impl<'a> Lower<'a> {
 
     fn lane_index(&mut self) -> V {
         if self.s.mesh.is_some() {
+            // Where host waves are narrower than the console's (32 lanes for
+            // wave64 code), lane masks come from ballots over the host wave
+            // and hold no bits for console lanes 32-63: number lanes the
+            // host's way so masks and lanes agree. Mesh code reads no other
+            // lanes, so each host wave acts as a narrower console wave.
+            if self.x.native.wave64 && self.x.options.wave64 != Wave64Mode::Native {
+                self.s.flags |= flags::WAVE_OPS;
+                return self.host_lane_index();
+            }
             // The console's lane: mesh code reads no other lanes, so host
             // waves need not match the console's.
             let f = self.mesh_thread();
