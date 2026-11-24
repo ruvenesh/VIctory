@@ -15,9 +15,9 @@ Layout on the box:
 - Data/logs: `~/victory-data/` (`<tag>.log/.txt/.vkd3d`, `data/crashes.log`, `media/`).
 
 Build (`/build <tag> [branch]`):
-1. `cd ~/Work/victory && git fetch --multiple fork origin -q`, then `git worktree add -f ~/Work/victory-wt/<tag> fork/<branch>` (or `git -C ~/Work/victory-wt/<tag> checkout --detach fork/<branch>` if it exists). Share the target dir to save time: `export CARGO_TARGET_DIR=~/Work/victory-target`.
-2. `cargo build --profile diag -p victory --features diagnostics --target x86_64-pc-windows-msvc` (long: run it as `nohup ... > ~/victory-data/build-<tag>.log 2>&1 &` and poll with a loop of short ssh checks; never a bare long sleep).
-3. Copy `$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/diag/victory.exe` to `~/victory-data/victory-<tag>.exe` (new name per build; a rebuild invalidates the shader cache).
+1. `cd ~/Work/victory && git fetch --multiple fork origin -q`, then `git worktree add -f --detach ~/Work/victory-wt/<tag> fork/<branch>` (or `git -C ~/Work/victory-wt/<tag> checkout -q --detach fork/<branch>` if it exists).
+2. `~/victory-tools/build-exe.sh ~/Work/victory-wt/<tag> <tag>` builds the diag exe and stages it as `~/victory-data/victory-<tag>.exe` (new name per build; a rebuild invalidates the shader cache). It builds into the worktree's own `target/` (a target dir shared across worktrees made cargo stage another worktree's exe) and holds a lock so only one cargo job runs at a time (parallel builds plus a title run froze the box). Long: run it with `nohup ... &` and poll `~/victory-data/build-<tag>.log` with short ssh checks; never a bare long sleep. Never set `CARGO_TARGET_DIR` to a shared dir.
+3. Before trusting a comparison, check the staged exes differ: `md5sum ~/victory-data/victory-<a>.exe ~/victory-data/victory-<b>.exe`.
 4. Tests (the `/test` skill): `~/victory-tools/test-branch.sh <tag> <branch> [cargo test args]` runs CI's clippy steps and the tests (default `--workspace`) for the Windows target under Proton's wine; it stops the game first (it holds ~12 GB VRAM). Run it with `setsid nohup ... &` and poll for the final `clippy= clippy_all= tests=` line in `~/victory-data/test-<tag>.log`. Six tests fail on the box even on upstream main (wine limits); CLAUDE.md lists them. Any other failure is real.
 
 Run (`/run-game <tag>`):
