@@ -854,11 +854,24 @@ impl<'a> Tracer<'a> {
             matches!(*w, Term::Value(v)
                 if self.def(v).is_some_and(|i| i.name().starts_with("s_load_")))
         };
-        Err(if words.iter().any(loaded) {
+        // Investigation build: name each word's origin kind (no values).
+        let kinds: Vec<String> = words
+            .iter()
+            .map(|w| match *w {
+                Term::Const(_) => "const".to_string(),
+                Term::Value(v) if self.phis[v.0 as usize].is_some() => "phi".to_string(),
+                Term::Value(v) => match self.def(v) {
+                    Some(i) => i.name().to_string(),
+                    None => "entry".to_string(),
+                },
+            })
+            .collect();
+        let what = if words.iter().any(loaded) {
             "a descriptor changed after loading"
         } else {
             "a descriptor neither loaded nor built"
-        })
+        };
+        Err(Box::leak(format!("{what} (words: {})", kinds.join(", ")).into_boxed_str()))
     }
 
     /// Words that phis of one block join, traced per predecessor (words
