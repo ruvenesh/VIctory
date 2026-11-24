@@ -837,4 +837,25 @@ mod ds_without_lds_tests {
             }
         }
     }
+
+    /// Multi-dword reads and the modelled atomics translate without LDS; an
+    /// atomic the lowering does not model still refuses.
+    #[test]
+    fn ds_wide_reads_and_atomics_without_lds() {
+        let ok: [(&str, [u32; 2]); 4] = [
+            ("ds_read2_b32", [0xD8DC_0100, 0x0000_0000]),
+            ("ds_read_b128", [0xDBFC_0000, 0x0000_0000]),
+            ("ds_add_rtn_u32", [0xD880_0000, 0x0000_0100]),
+            ("ds_add_u32", [0xD800_0000, 0x0000_0100]),
+        ];
+        for (name, ds) in ok {
+            lower_ds_cs(&ds, 0).unwrap_or_else(|e| panic!("{name} without LDS: {e:?}"));
+            lower_ds_cs(&ds, 1).unwrap_or_else(|e| panic!("{name} with LDS: {e:?}"));
+        }
+        // ds_add_f32 v0, v1
+        match lower_ds_cs(&[0xD854_0000, 0x0000_0100], 0) {
+            Err(ShaderError::Unsupported { what, .. }) => assert_eq!(what, "an LDS operation"),
+            other => panic!("ds_add_f32: {other:?}"),
+        }
+    }
 }

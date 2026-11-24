@@ -2155,6 +2155,12 @@ impl<'a> Lower<'a> {
                 (u32::from(*offset1) * scale, w),
             ]
         };
+        // Only compute and mesh programs get an LDS size; other stages keep
+        // refusing (their LDS holds ring data this does not model).
+        let sized = matches!(self.x.native.io, StageIo::Cs(_) | StageIo::Ms(_));
+        if !sized {
+            return Err("LDS the program does not allocate");
+        }
         if self.s.lds_dwords == 0 {
             // No LDS allocated: every access is out of bounds, so reads (and
             // returning atomics) give 0 and writes are dropped.
