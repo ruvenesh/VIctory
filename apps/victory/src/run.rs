@@ -60,15 +60,16 @@ pub fn run(
     let prepared = victory_loader::prepare(&original)?;
     let hash = prepared.original_hash.to_hex();
     let title_dir = exe.parent().unwrap_or(Path::new("."));
-    match victory_game::identify(&hash) {
+    let build = match victory_game::identify(&hash) {
         Some(build) => {
-            println!("build          {} ({hash})", build.label);
             if execute {
                 check_startup_archive(&title_dir.join(build.startup_archive))?;
             }
+            format!("{} ({hash})", build.label)
         }
-        None => println!("build          unknown ({hash})"),
-    }
+        None => format!("unknown ({hash})"),
+    };
+    println!("build          {build}");
 
     let images = cfg.cache_subdir("images")?;
     victory_hle::modules::d3d12x::use_shader_cache(cfg.cache_subdir("shaders")?);
@@ -172,7 +173,7 @@ pub fn run(
     victory_loader::log_crashes_to(temp.with_file_name("crashes.log"));
     victory_hle::runtime::use_console_timers();
     #[cfg(feature = "diagnostics")]
-    diagnostics(&image, &cfg);
+    diagnostics(&image, &cfg, &build);
     let late = LateDlls {
         host: resolver.host.clone(),
         title_dir: title_dir.to_owned(),
@@ -217,8 +218,9 @@ fn check_startup_archive(path: &Path) -> Result<()> {
 /// The debugging aids (README): scheduled stack dumps, watched values and
 /// memory saved on a crash.
 #[cfg(all(windows, feature = "diagnostics"))]
-fn diagnostics(image: &victory_loader::LoadedImage, cfg: &victory_core::Config) {
+fn diagnostics(image: &victory_loader::LoadedImage, cfg: &victory_core::Config, build: &str) {
     victory_loader::dump_stacks_on_schedule();
+    frametime_dump(cfg, build);
     victory_hle::modules::audio::capture::start();
     watch(image.base(), image.info().size_of_image as usize);
     poke(image.base(), image.info().size_of_image as usize);
@@ -239,6 +241,20 @@ fn diagnostics(image: &victory_loader::LoadedImage, cfg: &victory_core::Config) 
             })
             .collect(),
     );
+}
+
+/// Debugging aid: `VICTORY_FRAMETIME_DUMP=<file>` (`1`: `frametime.csv` in
+/// the cache folder) writes a CSV row per frame summary.
+#[cfg(all(windows, feature = "diagnostics"))]
+fn frametime_dump(cfg: &victory_core::Config, build: &str) {
+    let value = std::env::var_os("VICTORY_FRAMETIME_DUMP");
+    let Some(path) = victory_gpu::frametime::dump_path(value.as_deref(), &cfg.cache_dir) else {
+        return;
+    };
+    match victory_core::ensure_outside_repo(&path) {
+        Ok(()) => victory_gpu::frametime::start(path, build.to_owned()),
+        Err(e) => eprintln!("no frame time dump: {e}"),
+    }
 }
 
 /// Debugging aid: `VICTORY_WATCH=<rva>,...` (hex) logs the u32 at each

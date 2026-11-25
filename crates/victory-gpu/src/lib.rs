@@ -32,6 +32,8 @@ pub mod dxgi;
 pub mod external;
 pub mod fence;
 pub mod frame;
+#[cfg(all(windows, feature = "diagnostics"))]
+pub mod frametime;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]

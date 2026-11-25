@@ -2319,6 +2319,9 @@ struct Meter {
     copy_stats_frames: u64,
     drawn: u64,
     logged: std::time::Instant,
+    /// The time between presents, for the frame time dump.
+    #[cfg(feature = "diagnostics")]
+    frame_times: crate::frametime::Frames,
     /// The caption the window had, once read.
     caption: Option<Vec<u16>>,
 }
@@ -2333,6 +2336,8 @@ impl Meter {
             copy_stats_frames: 0,
             drawn: crate::draw::drawn(),
             logged: now,
+            #[cfg(feature = "diagnostics")]
+            frame_times: crate::frametime::Frames::default(),
             caption: None,
         }
     }
@@ -2342,6 +2347,8 @@ impl Meter {
         #[cfg(feature = "diagnostics")]
         tracing::debug!(target: "victory_gpu::frame", token = crate::frame::current(), "present");
         self.frames += 1;
+        #[cfg(feature = "diagnostics")]
+        self.frame_times.presented(std::time::Instant::now());
         crate::memory::log_frame();
         #[cfg(feature = "diagnostics")]
         crate::watch::frame_done();
@@ -2376,6 +2383,33 @@ impl Meter {
         // Over the same frames as the counts above.
         #[cfg(feature = "diagnostics")]
         let drops = crate::pipeline::take_drops();
+        // `VICTORY_FRAMETIME_DUMP`: the figures above, with the worst and
+        // mean frame since the last summary.
+        #[cfg(feature = "diagnostics")]
+        {
+            let (worst_ms, mean_ms) = self.frame_times.take();
+            crate::frametime::record(&crate::frametime::Row {
+                frame: crate::queue::presented(),
+                frames,
+                fps,
+                ms,
+                worst_ms,
+                mean_ms,
+                preparing_ms: cpu,
+                copies_ms: copy_ms,
+                copies_mb: copy_mb,
+                textures_ms: texture_ms,
+                textures_mb: texture_mb,
+                gpu_ms: gpu,
+                copy_back_ms: back_ms,
+                copy_back_mb: back_mb,
+                draws,
+                dropped,
+                making: crate::pipeline::making(),
+                indirect,
+                root_views,
+            });
+        }
         if self.logged.elapsed() >= std::time::Duration::from_secs(5) {
             self.logged = std::time::Instant::now();
             tracing::info!(
