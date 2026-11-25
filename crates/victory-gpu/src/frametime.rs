@@ -3,10 +3,10 @@
 //! measures (preparing, copies, textures, the GPU, copying back, draws,
 //! dropped work), and the worst and mean single frame of that second, timed
 //! at each present. The file starts with `#` lines naming the machine (CPU,
-//! GPU and its video memory, driver, RAM, OS, display), the `VICTORY_*`
-//! switches and the title build, so dumps from two PCs can be compared.
-//! They name no user, path or serial: a switch whose value is a path is
-//! listed without it.
+//! GPU and its video memory, driver, RAM, OS build, display), the names of
+//! the `VICTORY_*` switches set and the title build, so dumps from two PCs
+//! can be compared. They name no user, path or serial: switch values are
+//! left out.
 //!
 //! Ported from skornuta's frame time dump (skornuta/victory-fork, packaged
 //! as skornuta/victory-frametime, GPL-3.0), cut down to the figures this
@@ -16,6 +16,7 @@ use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Where the dump goes for a `VICTORY_FRAMETIME_DUMP` value: `1` is
@@ -41,10 +42,15 @@ enum State {
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
+/// Whether the app started the dump; checked first, so a summary without
+/// one costs a load.
+static ON: AtomicBool = AtomicBool::new(false);
+
 /// Writes the dump to `path` (truncated), naming the title build `build`
 /// in its header. Called by the app before the title runs.
 pub fn start(path: PathBuf, build: String) {
     *STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(State::Waiting { path, build });
+    ON.store(true, Ordering::Relaxed);
 }
 
 /// The time between presents over one summary interval.
@@ -143,7 +149,13 @@ impl Row {
 }
 
 /// Appends `row` when the dump is on; the first row makes the file.
+///
+/// shortcut: the header's machine probing runs with the first row, on the
+/// presenting thread (once; a few registry and DXGI queries).
 pub(crate) fn record(row: &Row) {
+    if !ON.load(Ordering::Relaxed) {
+        return;
+    }
     let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(State::Waiting { path, build }) = state.take_if(|s| matches!(s, State::Waiting { .. })) {
         *state = Some(match open(&path, &build) {
@@ -194,29 +206,15 @@ fn one_line(s: &str) -> String {
     s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
-/// The `VICTORY_*` variables that are set, sorted; a value that is a path
-/// (it has a slash) is shown as `<path>`, as it may name the user.
+/// The names of the `VICTORY_*` variables that are set, sorted; values are
+/// left out, as they may be paths that name the user.
 fn switches(vars: impl Iterator<Item = (String, String)>) -> String {
     let mut set: Vec<String> = vars
         .filter(|(key, value)| key.starts_with("VICTORY_") && !value.is_empty())
-        .map(|(key, value)| {
-            if value.contains(['/', '\\']) {
-                format!("{key}=<path>")
-            } else {
-                format!("{key}={}", one_line(&value))
-            }
-        })
+        .map(|(key, _)| key)
         .collect();
     set.sort();
     set.join(" ")
-}
-
-/// NVIDIA's driver number as people quote it, from the Windows driver
-/// version: 32.0.15.6094 is 560.94 (the last digit of the third part and
-/// the fourth).
-fn nvidia_driver(version: [u16; 4]) -> String {
-    let n = u32::from(version[2] % 10) * 10_000 + u32::from(version[3]);
-    format!("{}.{:02}", n / 100, n % 100)
 }
 
 /// The machine, as `(name, value)` lines; what cannot be read is left out.
@@ -230,33 +228,20 @@ fn machine() -> Vec<(&'static str, String)> {
         out.push(("gpu", format!("{} ({} MiB dedicated)", adapter.name, adapter.video_memory >> 20)));
         if let Some(v) = adapter.driver {
             let windows = format!("{}.{}.{}.{}", v[0], v[1], v[2], v[3]);
-            out.push((
-                "driver",
-                if adapter.vendor == 0x10de { format!("{} ({windows})", nvidia_driver(v)) } else { windows },
-            ));
+            out.push(("driver", windows));
         }
     }
     if let Some(mib) = total_ram_mib() {
         out.push(("ram", format!("{mib} MiB")));
     }
     let os = |value: &str| registry_text(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", value);
-    let build = os("CurrentBuild");
-    let mut product = os("ProductName").unwrap_or_default();
-    // Windows 11 still says "Windows 10" in `ProductName`.
-    if build.as_deref().and_then(|b| b.parse::<u32>().ok()).is_some_and(|b| b >= 22_000) {
-        product = product.replace("Windows 10", "Windows 11");
-    }
-    if let Some(release) = os("DisplayVersion") {
-        product += &format!(" {release}");
-    }
-    if let Some(build) = build {
-        product += &format!(" (build {build})");
-    }
-    if !product.trim().is_empty() {
-        out.push(("os", product.trim().to_owned()));
-    }
-    if let Some(wine) = wine_version() {
-        out.push(("wine", wine));
+    let product = os("ProductName").unwrap_or_default();
+    let os_line = match os("CurrentBuild") {
+        Some(build) => format!("{product} (build {build})"),
+        None => product,
+    };
+    if !os_line.trim().is_empty() {
+        out.push(("os", os_line.trim().to_owned()));
     }
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
     // SAFETY: plain queries of the primary display's size.
@@ -269,7 +254,6 @@ fn machine() -> Vec<(&'static str, String)> {
 
 struct Adapter {
     name: String,
-    vendor: u32,
     video_memory: u64,
     /// The user-mode driver's version, when DXGI reports it.
     driver: Option<[u16; 4]>,
@@ -292,7 +276,6 @@ fn adapter() -> Option<Adapter> {
         });
         Some(Adapter {
             name: String::from_utf16_lossy(&desc.Description[..end]),
-            vendor: desc.VendorId,
             video_memory: desc.DedicatedVideoMemory as u64,
             driver,
         })
@@ -338,29 +321,6 @@ fn total_ram_mib() -> Option<u64> {
     // SAFETY: a structure of the size it says.
     let ok = unsafe { GlobalMemoryStatusEx(&mut m) } != 0;
     ok.then_some(m.ullTotalPhys >> 20)
-}
-
-/// Wine's version when running under Wine or Proton (its `ntdll` exports
-/// `wine_get_version`).
-fn wine_version() -> Option<String> {
-    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
-    let ntdll: Vec<u16> = "ntdll.dll".encode_utf16().chain(std::iter::once(0)).collect();
-    // SAFETY: a NUL-terminated module name and export name; ntdll is always
-    // loaded, and `wine_get_version` takes nothing and returns a static
-    // NUL-terminated string.
-    unsafe {
-        let module = GetModuleHandleW(ntdll.as_ptr());
-        if module.is_null() {
-            return None;
-        }
-        let get = GetProcAddress(module, c"wine_get_version".as_ptr().cast())?;
-        let get = std::mem::transmute::<
-            unsafe extern "system" fn() -> isize,
-            extern "C" fn() -> *const std::ffi::c_char,
-        >(get);
-        let text = get();
-        (!text.is_null()).then(|| std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned())
-    }
 }
 
 #[cfg(test)]
@@ -424,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn switches_leave_out_paths() {
+    fn switches_are_names_only() {
         let vars = [
             ("VICTORY_LOG", "info"),
             ("VICTORY_FRAMETIME_DUMP", r"C:\Users\someone\ft.csv"),
@@ -436,7 +396,7 @@ mod tests {
         .map(|(k, v)| (k.to_owned(), v.to_owned()));
         assert_eq!(
             switches(vars.into_iter()),
-            "VICTORY_CAPTURE=<path> VICTORY_FRAMETIME_DUMP=<path> VICTORY_KEYS=25:Enter VICTORY_LOG=info"
+            "VICTORY_CAPTURE VICTORY_FRAMETIME_DUMP VICTORY_KEYS VICTORY_LOG"
         );
     }
 
@@ -449,9 +409,4 @@ mod tests {
         assert!(header.contains("# title: build (hash)\n"));
     }
 
-    #[test]
-    fn nvidia_numbers_come_from_the_last_five_digits() {
-        assert_eq!(nvidia_driver([32, 0, 15, 6094]), "560.94");
-        assert_eq!(nvidia_driver([31, 0, 15, 123]), "501.23");
-    }
 }
